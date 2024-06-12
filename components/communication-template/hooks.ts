@@ -1,35 +1,32 @@
+import { useLabelerAgent } from '@/shell/ConfigurationContext'
 import { useQuery } from '@tanstack/react-query'
-
-import client from '@/lib/client'
-import { queryClient } from 'components/QueryClient'
-import { toast } from 'react-toastify'
 import { useRouter } from 'next/navigation'
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { toast } from 'react-toastify'
 
-export const useCommunicationTemplateList = ({
-  enabled = true,
-}: {
+export const useCommunicationTemplateList = (options?: {
   enabled?: boolean
 }) => {
+  const labeler = useLabelerAgent()
+
   return useQuery({
-    queryKey: ['communicationTemplateList'],
-    enabled,
+    enabled: !!labeler && (options?.enabled ?? true),
     // We don't expect these to change often, so we can cache them for a while
     // When templates are updated/created, we manually invalidate the query so fresh data is always available
     cacheTime: 60 * 60 * 1000,
     staleTime: 60 * 60 * 1000,
+    queryKey: ['communicationTemplateList', { for: labeler?.did ?? null }],
     queryFn: async () => {
       const { data } =
-        await client.api.tools.ozone.communication.listTemplates(
-          {},
-          { headers: client.proxyHeaders() },
-        )
+        await labeler!.api.tools.ozone.communication.listTemplates()
       return data.communicationTemplates
     },
   })
 }
 
 export const useCommunicationTemplateEditor = (templateId?: string) => {
+  const labeler = useLabelerAgent()
+
   const [contentMarkdown, setContentMarkdown] = useState('')
   const [isSaving, setIsSaving] = useState(false)
 
@@ -41,7 +38,9 @@ export const useCommunicationTemplateEditor = (templateId?: string) => {
   const router = useRouter()
   // Enable the query when we have a templateId, otherwise, it means the hook is being mounted on the create page
   // where we don't need to load any existing template
-  const { data } = useCommunicationTemplateList({ enabled: !!templateId })
+  const { data, refetch } = useCommunicationTemplateList({
+    enabled: !!templateId,
+  })
 
   useEffect(() => {
     if (templateId && data?.length) {
@@ -61,38 +60,44 @@ export const useCommunicationTemplateEditor = (templateId?: string) => {
     }
   }, [templateId, data])
 
-  const saveFunc = ({
-    contentMarkdown,
-    name,
-    subject,
-    disabled,
-  }: {
-    contentMarkdown: string
-    name: string
-    subject: string
-    disabled: boolean
-  }) =>
-    templateId
-      ? client.api.tools.ozone.communication.updateTemplate(
-          {
-            id: `${templateId}`,
-            contentMarkdown,
-            subject,
-            name,
-            disabled,
-            updatedBy: client.session.did,
-          },
-          { encoding: 'application/json', headers: client.proxyHeaders() },
-        )
-      : client.api.tools.ozone.communication.createTemplate(
-          {
-            contentMarkdown,
-            subject,
-            name,
-            createdBy: client.session.did,
-          },
-          { headers: client.proxyHeaders(), encoding: 'application/json' },
-        )
+  const saveFunc = useCallback(
+    async ({
+      contentMarkdown,
+      name,
+      subject,
+      disabled,
+    }: {
+      contentMarkdown: string
+      name: string
+      subject: string
+      disabled: boolean
+    }) => {
+      if (!labeler) throw new Error('Not signed in')
+
+      return templateId
+        ? labeler.api.tools.ozone.communication.updateTemplate(
+            {
+              id: `${templateId}`,
+              contentMarkdown,
+              subject,
+              name,
+              disabled,
+              updatedBy: labeler.getDid(),
+            },
+            { encoding: 'application/json' },
+          )
+        : labeler.api.tools.ozone.communication.createTemplate(
+            {
+              contentMarkdown,
+              subject,
+              name,
+              createdBy: labeler.getDid(),
+            },
+            { encoding: 'application/json' },
+          )
+    },
+    [labeler, templateId],
+  )
 
   const onSubmit = async (e) => {
     e.preventDefault()
@@ -122,9 +127,7 @@ export const useCommunicationTemplateEditor = (templateId?: string) => {
       // Reset the form if email is sent successfully
       e.target.reset()
       setContentMarkdown('')
-      queryClient.invalidateQueries({
-        queryKey: ['communicationTemplateList'],
-      })
+      refetch()
       router.push('/communication-template')
       // On error, we are already showing a generic error message within the toast so
       // swallowing actual error here and resetting local state back afterwards

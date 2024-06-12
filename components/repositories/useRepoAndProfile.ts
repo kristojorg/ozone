@@ -1,10 +1,12 @@
-import client from '@/lib/client'
 import { getDidFromHandle } from '@/lib/identity'
+import { useLabelerAgent } from '@/shell/ConfigurationContext'
 import { useQuery } from '@tanstack/react-query'
 
-export const useRepoAndProfile = ({ id }: { id: string }) =>
-  useQuery({
-    queryKey: ['accountView', { id }],
+export const useRepoAndProfile = ({ id }: { id: string }) => {
+  const labeler = useLabelerAgent()
+  return useQuery({
+    enabled: !!labeler,
+    queryKey: ['accountView', { id, for: labeler?.did ?? null }],
     queryFn: async () => {
       const getRepo = async () => {
         let did
@@ -13,20 +15,14 @@ export const useRepoAndProfile = ({ id }: { id: string }) =>
         } else {
           did = await getDidFromHandle(id)
         }
-        const { data: repo } = await client.api.tools.ozone.moderation.getRepo(
-          { did },
-          { headers: client.proxyHeaders() },
-        )
+        const { data: repo } =
+          await labeler!.api.tools.ozone.moderation.getRepo({ did })
         return repo
       }
       const getProfile = async () => {
         try {
-          const { data: profile } = await client.api.app.bsky.actor.getProfile(
-            {
-              actor: id,
-            },
-            { headers: client.proxyHeaders() },
-          )
+          const { data: profile } =
+            await labeler!.api.app.bsky.actor.getProfile({ actor: id })
           return profile
         } catch (err) {
           if (err?.['error'] === 'AccountTakedown') {
@@ -40,3 +36,4 @@ export const useRepoAndProfile = ({ id }: { id: string }) =>
     },
     staleTime: 5 * 60 * 1000,
   })
+}

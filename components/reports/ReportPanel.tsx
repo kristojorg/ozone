@@ -8,6 +8,7 @@ import { PropsOf } from '@/lib/types'
 import { queryClient } from 'components/QueryClient'
 import { SubjectSwitchButton } from '@/common/SubjectSwitchButton'
 import { reasonTypeOptions } from './helpers/getType'
+import { useLabelerAgent } from '@/shell/ConfigurationContext'
 
 export function ReportPanel(
   props: PropsOf<typeof ActionPanel> & {
@@ -44,6 +45,7 @@ function Form(props: {
   } = props
   const [subject, setSubject] = useState(fixedSubject ?? '')
   const [submitting, setSubmitting] = useState(false)
+  const labeler = useLabelerAgent()
 
   // Update the subject when parent renderer wants to update it
   // This happens when the subject is loaded async on the renderer component
@@ -65,7 +67,10 @@ function Form(props: {
             reason: formData.get('reason')!.toString() || undefined,
           })
           onCancel() // Close
-          queryClient.invalidateQueries(['modEventList'])
+          queryClient.invalidateQueries([
+            'modEventList',
+            { for: labeler?.did ?? null },
+          ])
         } finally {
           setSubmitting(false)
         }

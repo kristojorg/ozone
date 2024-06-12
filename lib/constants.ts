@@ -6,7 +6,7 @@ export const PLC_DIRECTORY_URL =
 
 export const QUEUE_CONFIG = process.env.NEXT_PUBLIC_QUEUE_CONFIG || '{}'
 
-export const SOCIAL_APP_DOMAIN = 'bsky.app'
-export const SOCIAL_APP_URL = `https://${SOCIAL_APP_DOMAIN}`
+export const SOCIAL_APP_URL =
+  process.env.NEXT_PUBLIC_SOCIAL_APP_URL || `https://bsky.app`
 
 export const DM_DISABLE_TAG = 'chat-disabled'

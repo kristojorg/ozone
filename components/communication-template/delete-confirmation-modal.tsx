@@ -1,10 +1,10 @@
 import { Dialog, Transition } from '@headlessui/react'
+import { useQueryClient } from '@tanstack/react-query'
 import { Fragment, useState } from 'react'
+import { toast } from 'react-toastify'
 
 import { ActionButton } from '@/common/buttons'
-import clientManager from '@/lib/client'
-import { queryClient } from 'components/QueryClient'
-import { toast } from 'react-toastify'
+import { useLabelerAgent } from '@/shell/ConfigurationContext'
 
 export const CommunicationTemplateDeleteConfirmationModal = ({
   setIsDialogOpen,
@@ -14,6 +14,9 @@ export const CommunicationTemplateDeleteConfirmationModal = ({
   templateId?: string
 }) => {
   const [isDeleting, setIsDeleting] = useState(false)
+  const labeler = useLabelerAgent()
+  const queryClient = useQueryClient()
+
   if (!templateId) {
     return null
   }
@@ -21,12 +24,16 @@ export const CommunicationTemplateDeleteConfirmationModal = ({
   const onDelete = async () => {
     setIsDeleting(true)
     try {
-      await clientManager.api.tools.ozone.communication.deleteTemplate(
+      if (!labeler) throw new Error('Not signed in')
+      await labeler.api.tools.ozone.communication.deleteTemplate(
         { id: templateId },
-        { headers: clientManager.proxyHeaders(), encoding: 'application/json' },
+        { encoding: 'application/json' },
       )
       toast.success('Template deleted')
-      queryClient.invalidateQueries(['communicationTemplateList'])
+      queryClient.invalidateQueries([
+        'communicationTemplateList',
+        { for: labeler.did },
+      ])
       setIsDeleting(false)
       setIsDialogOpen(false)
     } catch (err: any) {

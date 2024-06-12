@@ -1,10 +1,11 @@
-import { FormLabel, Textarea } from '@/common/forms'
-import { ConfirmationModal } from '@/common/modals/confirmation'
-import client from '@/lib/client'
-import { MOD_EVENTS } from '@/mod-event/constants'
-import { ActionDurationSelector } from '@/reports/ModerationForm/ActionDurationSelector'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
+
+import { FormLabel, Textarea } from '@/common/forms'
+import { ConfirmationModal } from '@/common/modals/confirmation'
+import { MOD_EVENTS } from '@/mod-event/constants'
+import { ActionDurationSelector } from '@/reports/ModerationForm/ActionDurationSelector'
+import { useLabelerAgent } from '@/shell/ConfigurationContext'
 
 const useMuteReporting = ({
   did,
@@ -13,6 +14,7 @@ const useMuteReporting = ({
   did: string
   isReportingMuted: boolean
 }) => {
+  const labeler = useLabelerAgent()
   const queryClient = useQueryClient()
   const mutation = useMutation<
     { success: boolean },
@@ -25,7 +27,9 @@ const useMuteReporting = ({
     unknown
   >(
     async (params) => {
-      const result = await client.api.tools.ozone.moderation.emitEvent(
+      if (!labeler) throw new Error('Labeler is not initialized')
+
+      const result = await labeler.api.tools.ozone.moderation.emitEvent(
         {
           event: {
             $type: isReportingMuted
@@ -37,12 +41,9 @@ const useMuteReporting = ({
             $type: 'com.atproto.admin.defs#repoRef',
             did,
           },
-          createdBy: client.session.did,
+          createdBy: labeler.getDid(),
         },
-        {
-          headers: client.proxyHeaders(),
-          encoding: 'application/json',
-        },
+        { encoding: 'application/json' },
       )
 
       return result

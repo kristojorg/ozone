@@ -1,11 +1,8 @@
 'use client'
-import { ComponentProps, useEffect, useState } from 'react'
-import Link from 'next/link'
-import { useQuery } from '@tanstack/react-query'
 import {
+  AppBskyActorDefs,
   AppBskyActorGetProfile as GetProfile,
   ToolsOzoneModerationGetRepo as GetRepo,
-  AppBskyActorDefs,
 } from '@atproto/api'
 import {
   ArrowTopRightOnSquareIcon,
@@ -15,35 +12,38 @@ import {
   UserCircleIcon,
   XCircleIcon,
 } from '@heroicons/react/20/solid'
-import { AuthorFeed } from '../common/feeds/AuthorFeed'
+import { useQuery } from '@tanstack/react-query'
+import Link from 'next/link'
+import { usePathname, useRouter, useSearchParams } from 'next/navigation'
+import { ComponentProps, useCallback, useEffect, useState } from 'react'
+
+import { DataField } from '@/common/DataField'
+import { Dropdown, DropdownItem } from '@/common/Dropdown'
+import { TabView, Tabs } from '@/common/Tabs'
+import { ActionButton, ButtonGroup, LinkButton } from '@/common/buttons'
+import { EmptyDataset } from '@/common/feeds/EmptyFeed'
+import { InviteCodesTable } from '@/invites/InviteCodesTable'
+import { buildBlueSkyAppUrl, truncate } from '@/lib/util'
+import { ModEventList } from '@/mod-event/EventList'
+import { getProfileUriForDid } from '@/reports/helpers/subject'
+import { useLabelerAgent } from '@/shell/ConfigurationContext'
+import { SubjectReviewStateBadge } from '@/subject/ReviewStateMarker'
+import { EmailComposer } from 'components/email/Composer'
+import { Lists } from 'components/list/Lists'
 import { Json } from '../common/Json'
-import { buildBlueSkyAppUrl, classNames, truncate } from '@/lib/util'
-import client from '@/lib/client'
-import { ReportPanel } from '../reports/ReportPanel'
-import React from 'react'
+import { Loading, LoadingFailed } from '../common/Loader'
+import { AuthorFeed } from '../common/feeds/AuthorFeed'
 import {
   LabelList,
   LabelListEmpty,
-  getLabelsForSubject,
   ModerationLabel,
+  getLabelsForSubject,
 } from '../common/labels'
-import { Loading, LoadingFailed } from '../common/Loader'
-import { InviteCodeGenerationStatus } from './InviteCodeGenerationStatus'
-import { InviteCodesTable } from '@/invites/InviteCodesTable'
-import { Dropdown, DropdownItem } from '@/common/Dropdown'
-import { getProfileUriForDid } from '@/reports/helpers/subject'
-import { EmailComposer } from 'components/email/Composer'
-import { DataField } from '@/common/DataField'
-import { ProfileAvatar } from './ProfileAvatar'
+import { ReportPanel } from '../reports/ReportPanel'
 import { DidHistory } from './DidHistory'
-import { ModEventList } from '@/mod-event/EventList'
-import { ActionButton, ButtonGroup, LinkButton } from '@/common/buttons'
-import { SubjectReviewStateBadge } from '@/subject/ReviewStateMarker'
-import { usePathname, useRouter, useSearchParams } from 'next/navigation'
-import { EmptyDataset } from '@/common/feeds/EmptyFeed'
+import { InviteCodeGenerationStatus } from './InviteCodeGenerationStatus'
 import { MuteReporting } from './MuteReporting'
-import { Tabs, TabView } from '@/common/Tabs'
-import { Lists } from 'components/list/Lists'
+import { ProfileAvatar } from './ProfileAvatar'
 
 enum Views {
   Details,
@@ -505,13 +505,14 @@ function Posts({
 }
 
 function Follows({ id }: { id: string }) {
+  const labeler = useLabelerAgent()
   const { error, data: follows } = useQuery({
-    queryKey: ['follows', { id }],
+    enabled: !!labeler,
+    queryKey: ['follows', { id, for: labeler?.did ?? null }],
     queryFn: async () => {
-      const { data } = await client.api.app.bsky.graph.getFollows(
-        { actor: id },
-        { headers: client.proxyHeaders() },
-      )
+      const { data } = await labeler!.api.app.bsky.graph.getFollows({
+        actor: id,
+      })
       return data
     },
   })
@@ -523,15 +524,14 @@ function Follows({ id }: { id: string }) {
 }
 
 function Followers({ id }: { id: string }) {
+  const labeler = useLabelerAgent()
   const { error, data: followers } = useQuery({
-    queryKey: ['followers', { id }],
+    enabled: !!labeler,
+    queryKey: ['followers', { id, for: labeler?.did ?? null }],
     queryFn: async () => {
-      const { data } = await client.api.app.bsky.graph.getFollowers(
-        {
-          actor: id,
-        },
-        { headers: client.proxyHeaders() },
-      )
+      const { data } = await labeler!.api.app.bsky.graph.getFollowers({
+        actor: id,
+      })
       return data
     },
   })
@@ -546,8 +546,10 @@ function Followers({ id }: { id: string }) {
 }
 
 function Invites({ repo }: { repo: GetRepo.OutputSchema }) {
+  const labeler = useLabelerAgent()
   const { error, data: invitedUsers } = useQuery({
-    queryKey: ['invitedUsers', { id: repo.did }],
+    enabled: !!labeler,
+    queryKey: ['invitedUsers', { id: repo.did, for: labeler?.did ?? null }],
     queryFn: async () => {
       const actors: string[] = []
       if (repo.invites?.length) {
@@ -560,27 +562,22 @@ function Invites({ repo }: { repo: GetRepo.OutputSchema }) {
       if (actors.length === 0) {
         return { profiles: [] }
       }
-      const { data } = await client.api.app.bsky.actor.getProfiles(
-        {
-          actors,
-        },
-        { headers: client.proxyHeaders() },
-      )
+      const { data } = await labeler!.api.app.bsky.actor.getProfiles({ actors })
       return data
     },
   })
 
-  const onClickRevoke = React.useCallback(async () => {
+  const onClickRevoke = useCallback(async () => {
+    if (!labeler) {
+      return alert('Labeler is not initialized')
+    }
     if (!confirm('Are you sure you want to revoke their invite codes?')) {
       return
     }
-    await client.api.com.atproto.admin.disableInviteCodes(
-      {
-        accounts: [repo.did],
-      },
-      { encoding: 'application/json', headers: client.proxyHeaders() },
-    )
-  }, [client])
+    await labeler.api.com.atproto.admin.disableInviteCodes({
+      accounts: [repo.did],
+    })
+  }, [labeler, repo.did])
 
   return (
     <div>

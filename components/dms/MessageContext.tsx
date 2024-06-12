@@ -1,23 +1,27 @@
-import { Alert } from '@/common/Alert'
-import { RecordEmbedView } from '@/common/posts/PostsFeed'
-import client from '@/lib/client'
 import { ChatBskyConvoDefs } from '@atproto/api'
 import { ChevronDownIcon, ChevronUpIcon } from '@heroicons/react/24/solid'
 import { useQuery } from '@tanstack/react-query'
 import { ComponentProps, useState } from 'react'
 
+import { Alert } from '@/common/Alert'
+import { RecordEmbedView } from '@/common/posts/PostsFeed'
+import { useLabelerAgent } from '@/shell/ConfigurationContext'
+
 const useMessageContext = ({ messageId, did }) => {
+  const labeler = useLabelerAgent()
+
   return useQuery({
     // Message context isn't likely to change, so cache for a long time
     cacheTime: 4 * 60 * 60 * 1000,
     staleTime: 4 * 60 * 60 * 1000,
     retry: 0,
     queryKey: ['messageContext', { messageId }],
+    enabled: !!labeler,
     queryFn: async () => {
-      const { data } = await client.api.chat.bsky.moderation.getMessageContext(
-        { messageId },
-        { headers: client.proxyHeaders() },
-      )
+      const { data } =
+        await labeler!.api.chat.bsky.moderation.getMessageContext({
+          messageId,
+        })
       return data.messages
     },
   })
